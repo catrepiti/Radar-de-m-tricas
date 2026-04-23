@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   Plus, 
@@ -36,7 +36,7 @@ import {
   Cell
 } from 'recharts';
 import { collection, onSnapshot, query, where, addDoc, updateDoc, doc, getDocs } from 'firebase/firestore';
-import { onAuthStateChanged, signInWithPopup, GoogleAuthProvider, signOut, User } from 'firebase/auth';
+import { onAuthStateChanged, signInWithPopup, GoogleAuthProvider, signOut, User, signInWithEmailAndPassword, createUserWithEmailAndPassword, updateProfile } from 'firebase/auth';
 import { auth, db } from './lib/firebase';
 import { adApiService, AdMetric } from './services/adApiService';
 import { clsx, type ClassValue } from 'clsx';
@@ -276,7 +276,7 @@ export default function App() {
 
   if (loading) return <div className="h-screen bg-[#0a0a0a] flex items-center justify-center text-white font-mono uppercase tracking-[0.5em] text-xs">Loading...</div>;
 
-  if (!user) return <LoginView onLogin={login} />;
+  if (!user) return <LoginView />;
 
   return (
     <div className="h-screen bg-[#0a0a0a] text-[#e5e7eb] font-sans flex flex-col overflow-hidden selection:bg-indigo-500 selection:text-white">
@@ -393,7 +393,7 @@ export default function App() {
                title={user.email || ''}
                className="w-8 h-8 rounded-full bg-gray-800 border border-grid flex items-center justify-center text-[10px] font-bold uppercase transition-transform hover:scale-105 cursor-pointer"
              >
-               {user.email?.charAt(0)}
+               {(user.displayName || user.email)?.charAt(0)}
              </div>
              <button onClick={logout} className="p-1.5 text-gray-500 hover:text-white transition-colors" title="Sair">
                <LogOut size={16} />
@@ -1349,7 +1349,53 @@ function KPIItem({ title, value, diff, diffColor, tooltip }: { title: string, va
   );
 }
 
-function LoginView({ onLogin }: { onLogin: () => void }) {
+function LoginView() {
+  const [isLogin, setIsLogin] = useState(true);
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [name, setName] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  const handleGoogleLogin = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      const provider = new GoogleAuthProvider();
+      await signInWithPopup(auth, provider);
+    } catch (err: any) {
+      setError(err.message || 'Erro ao entrar com Google');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleEmailAuth = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!email || !password) return setError('Preencha todos os campos');
+    
+    try {
+      setLoading(true);
+      setError(null);
+      if (isLogin) {
+        await signInWithEmailAndPassword(auth, email, password);
+      } else {
+        if (!name) return setError('Preencha seu nome');
+        const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+        await updateProfile(userCredential.user, { displayName: name });
+      }
+    } catch (err: any) {
+      let msg = 'Erro na autenticação';
+      if (err.code === 'auth/user-not-found') msg = 'Usuário não encontrado';
+      if (err.code === 'auth/wrong-password') msg = 'Senha incorreta';
+      if (err.code === 'auth/email-already-in-use') msg = 'Este e-mail já está em uso';
+      if (err.code === 'auth/weak-password') msg = 'A senha deve ter pelo menos 6 caracteres';
+      setError(msg);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-[#0a0a0a] flex items-center justify-center p-6 relative overflow-hidden font-sans">
       <div className="absolute inset-0 opacity-20 pointer-events-none">
@@ -1363,15 +1409,90 @@ function LoginView({ onLogin }: { onLogin: () => void }) {
       >
         <div className="w-12 h-12 bg-indigo-600 rounded-lg flex items-center justify-center font-bold text-white text-2xl mb-8 mx-auto shadow-indigo-500/20 shadow-lg">M</div>
         <h2 className="text-xl font-bold text-center mb-1 tracking-tight uppercase">Radar <span className="text-indigo-400">Métricas</span></h2>
-        <p className="text-gray-500 text-center mb-10 text-xs uppercase tracking-widest">Acesso Restrito • Gestores de Tráfego</p>
+        <p className="text-gray-500 text-center mb-10 text-xs uppercase tracking-widest">
+          {isLogin ? 'Acesso Restrito • Gestores de Tráfego' : 'Novo Registro • Comece sua Análise'}
+        </p>
+
+        {error && (
+          <div className="bg-red-500/10 border border-red-500/20 text-red-500 text-[10px] uppercase font-bold p-3 rounded mb-6 flex items-center gap-2">
+            <AlertTriangle size={14} />
+            {error}
+          </div>
+        )}
         
+        <form onSubmit={handleEmailAuth} className="space-y-4 mb-8">
+          {!isLogin && (
+            <div>
+              <label className="text-[10px] uppercase tracking-widest text-gray-400 font-bold mb-1 block">Nome Completo</label>
+              <input 
+                type="text" 
+                value={name}
+                onChange={e => setName(e.target.value)}
+                className="w-full bg-[#0a0a0a] border border-[#1f1f1f] p-3 rounded text-xs outline-none focus:border-indigo-500 transition-all text-white"
+                placeholder="Seu nome"
+              />
+            </div>
+          )}
+          <div>
+            <label className="text-[10px] uppercase tracking-widest text-gray-400 font-bold mb-1 block">E-mail Corporativo</label>
+            <input 
+              type="email" 
+              value={email}
+              onChange={e => setEmail(e.target.value)}
+              className="w-full bg-[#0a0a0a] border border-[#1f1f1f] p-3 rounded text-xs outline-none focus:border-indigo-500 transition-all text-white"
+              placeholder="seu@email.com"
+            />
+          </div>
+          <div>
+            <label className="text-[10px] uppercase tracking-widest text-gray-400 font-bold mb-1 block">Senha Segura</label>
+            <input 
+              type="password" 
+              value={password}
+              onChange={e => setPassword(e.target.value)}
+              className="w-full bg-[#0a0a0a] border border-[#1f1f1f] p-3 rounded text-xs outline-none focus:border-indigo-500 transition-all text-white"
+              placeholder="••••••••"
+            />
+          </div>
+          
+          <button 
+            type="submit"
+            disabled={loading}
+            className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-4 rounded-lg transition-all shadow-lg uppercase text-xs tracking-widest disabled:opacity-50"
+          >
+            {loading ? 'Processando...' : (isLogin ? 'Entrar no Radar' : 'Criar minha conta')}
+          </button>
+        </form>
+
+        <div className="relative mb-8">
+          <div className="absolute inset-0 flex items-center">
+            <div className="w-full border-t border-[#1f1f1f]"></div>
+          </div>
+          <div className="relative flex justify-center text-[10px] uppercase">
+            <span className="bg-[#141414] px-4 text-gray-600 font-bold">Ou continue com</span>
+          </div>
+        </div>
+
         <button 
-          onClick={onLogin}
-          className="w-full bg-white hover:bg-gray-200 text-black font-bold py-4 rounded-lg transition-all flex items-center justify-center gap-3 shadow-lg uppercase text-xs tracking-widest"
+          onClick={handleGoogleLogin}
+          disabled={loading}
+          className="w-full bg-white hover:bg-gray-200 text-black font-bold py-4 rounded-lg transition-all flex items-center justify-center gap-3 shadow-lg uppercase text-xs tracking-widest disabled:opacity-50 mb-6"
         >
           <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" className="w-5 h-5" alt="Google" />
-          Autenticação Google
+          Google
         </button>
+
+        <p className="text-center text-[10px] uppercase tracking-widest text-gray-500 font-medium">
+          {isLogin ? 'Não tem uma conta?' : 'Já possui acesso?'}
+          <button 
+            onClick={() => {
+              setIsLogin(!isLogin);
+              setError(null);
+            }}
+            className="ml-2 text-indigo-400 hover:text-indigo-300 font-bold"
+          >
+            {isLogin ? 'Cadastre-se' : 'Faça Login'}
+          </button>
+        </p>
       </motion.div>
     </div>
   );
