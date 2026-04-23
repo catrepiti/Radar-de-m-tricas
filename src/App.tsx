@@ -19,7 +19,12 @@ import {
   AlertTriangle,
   Info,
   Star,
-  Calendar
+  Calendar,
+  Download,
+  Phone,
+  ArrowRight,
+  ShieldCheck,
+  Smartphone
 } from 'lucide-react';
 import { 
   LineChart, 
@@ -36,7 +41,20 @@ import {
   Cell
 } from 'recharts';
 import { collection, onSnapshot, query, where, addDoc, updateDoc, doc, getDocs } from 'firebase/firestore';
-import { onAuthStateChanged, signInWithPopup, GoogleAuthProvider, signOut, User, signInWithEmailAndPassword, createUserWithEmailAndPassword, updateProfile, signInAnonymously } from 'firebase/auth';
+import { 
+  onAuthStateChanged, 
+  signInWithPopup, 
+  GoogleAuthProvider, 
+  signOut, 
+  User, 
+  signInWithEmailAndPassword, 
+  createUserWithEmailAndPassword, 
+  updateProfile, 
+  signInAnonymously,
+  RecaptchaVerifier,
+  signInWithPhoneNumber,
+  ConfirmationResult
+} from 'firebase/auth';
 import { auth, db } from './lib/firebase';
 import { adApiService, AdMetric } from './services/adApiService';
 import { clsx, type ClassValue } from 'clsx';
@@ -94,6 +112,41 @@ export default function App() {
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'paused' | 'error'>('all');
   const [dateRange, setDateRange] = useState('today');
   const [alertSettings, setAlertSettings] = useState({ cpaThreshold: 100, spendDropThreshold: 30, spendSurgeThreshold: 50 });
+
+  const exportCreativesCSV = () => {
+    // @ts-ignore
+    const filtered = MOCK_CREATIVES.filter(c => !selectedClient || (c as any).clientId === selectedClient.id || c.platform === selectedClient.platform);
+    
+    // Header
+    const headers = ["ID", "Nome", "Status", "Plataforma", "CTR", "CPC", "CPM", "ROAS"];
+    
+    // Rows
+    const rows = filtered.map(c => [
+      c.id,
+      `"${c.name.replace(/"/g, '""')}"`,
+      c.status,
+      c.platform.toUpperCase(),
+      c.ctr,
+      c.cpc,
+      c.cpm,
+      c.roas
+    ]);
+    
+    const csvContent = "\ufeff" + [
+      headers.join(","),
+      ...rows.map(r => r.join(","))
+    ].join("\n");
+    
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement("a");
+    const url = URL.createObjectURL(blob);
+    link.setAttribute("href", url);
+    link.setAttribute("download", `radar_criativos_${new Date().toISOString().split('T')[0]}.csv`);
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
 
   const dateMultiplier = useMemo(() => {
     switch (dateRange) {
@@ -738,6 +791,12 @@ export default function App() {
                   </div>
                   
                   <div className="flex items-center gap-3">
+                    <button 
+                      onClick={exportCreativesCSV}
+                      className="bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-1.5 rounded text-[10px] font-bold uppercase tracking-widest flex items-center gap-2 transition-all shadow-lg shadow-indigo-500/10"
+                    >
+                      <Download size={14} /> Exportar Relatório
+                    </button>
                     <span className="text-[10px] uppercase font-bold text-gray-500">Alvo:</span>
                     <select 
                       value={selectedClient?.id || ''}
@@ -1355,11 +1414,67 @@ function KPIItem({ title, value, diff, diffColor, tooltip }: { title: string, va
 
 function LoginView() {
   const [isLogin, setIsLogin] = useState(true);
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
+  const [phoneNumber, setPhoneNumber] = useState('');
+  const [verificationCode, setVerificationCode] = useState('');
   const [name, setName] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [confirmationResult, setConfirmationResult] = useState<ConfirmationResult | null>(null);
+
+  const setupRecaptcha = (containerId: string) => {
+    try {
+      const verifier = new RecaptchaVerifier(auth, containerId, {
+        'size': 'invisible'
+      });
+      return verifier;
+    } catch (err) {
+      console.error(err);
+      return null;
+    }
+  };
+
+  const handleSendCode = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!phoneNumber) return setError('Informe seu número de telefone');
+    
+    try {
+      setLoading(true);
+      setError(null);
+      
+      const verifier = setupRecaptcha('recaptcha-button');
+      if (!verifier) throw new Error('Falha na segurança');
+
+      // Add prefix if missing
+      const formatted = phoneNumber.startsWith('+') ? phoneNumber : `+55${phoneNumber.replace(/\D/g, '')}`;
+      
+      const result = await signInWithPhoneNumber(auth, formatted, verifier);
+      setConfirmationResult(result);
+    } catch (err: any) {
+      console.error(err);
+      setError('Falha ao enviar SMS. Verifique o número (+55...)');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleVerifyCode = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!verificationCode || !confirmationResult) return;
+
+    try {
+      setLoading(true);
+      setError(null);
+      const result = await confirmationResult.confirm(verificationCode);
+      if (result.user && name && !result.user.displayName) {
+        await updateProfile(result.user, { displayName: name });
+      }
+    } catch (err: any) {
+      console.error(err);
+      setError('Código inválido ou expirado');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const handleGoogleLogin = async () => {
     try {
@@ -1368,54 +1483,7 @@ function LoginView() {
       const provider = new GoogleAuthProvider();
       await signInWithPopup(auth, provider);
     } catch (err: any) {
-      setError(err.message || 'Erro ao entrar com Google');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleEmailAuth = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!email || !password) return setError('Preencha todos os campos');
-    
-    // Validação de E-mail (Suporta .com, .com.br e outros formatos corporativos)
-    const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}(\.[a-zA-Z]{2,})?$/;
-    if (!emailRegex.test(email)) {
-      return setError('E-mail inválido. Utilize o formato seu@empresa.com ou .com.br');
-    }
-
-    // Validação de Senha (conforme solicitado: até 8 dígitos/caracteres)
-    // Nota: Firebase exige no mínimo 6. Portanto, a regra será entre 6 e 8.
-    if (password.length < 6) {
-      return setError('A senha deve ter no mínimo 6 caracteres');
-    }
-    if (password.length > 8) {
-      return setError('A senha deve ter no máximo 8 caracteres');
-    }
-    
-    try {
-      setLoading(true);
-      setError(null);
-      if (isLogin) {
-        await signInWithEmailAndPassword(auth, email, password);
-      } else {
-        if (!name) return setError('Preencha seu nome');
-        const userCredential = await createUserWithEmailAndPassword(auth, email, password);
-        await updateProfile(userCredential.user, { displayName: name });
-      }
-    } catch (err: any) {
-      console.error("Erro detalhado da Firebase:", err.code, err.message);
-      let msg = `Erro: ${err.message || 'Falha na comunicação com o servidor'}`;
-      
-      if (err.code === 'auth/user-not-found') msg = 'E-mail não cadastrado';
-      if (err.code === 'auth/wrong-password') msg = 'Senha incorreta';
-      if (err.code === 'auth/email-already-in-use') msg = 'Este e-mail já está em uso';
-      if (err.code === 'auth/invalid-email') msg = 'Formato de e-mail inválido pelo sistema';
-      if (err.code === 'auth/operation-not-allowed') msg = 'O login por e-mail ainda não está habilitado no console Firebase';
-      if (err.code === 'auth/network-request-failed') msg = 'Falha de conexão. Verifique sua internet';
-      if (err.code === 'auth/too-many-requests') msg = 'Acesso bloqueado temporariamente por excesso de tentativas';
-      
-      setError(msg);
+      setError('Erro ao entrar com Google');
     } finally {
       setLoading(false);
     }
@@ -1427,8 +1495,7 @@ function LoginView() {
       setError(null);
       await signInAnonymously(auth);
     } catch (err: any) {
-      setError('Acesso rápido temporariamente indisponível. Utilize o formulário ou Google.');
-      console.error(err);
+      setError('Acesso rápido indisponível');
     } finally {
       setLoading(false);
     }
@@ -1436,6 +1503,7 @@ function LoginView() {
 
   return (
     <div className="min-h-screen bg-[#0a0a0a] flex items-center justify-center p-6 relative overflow-hidden font-sans">
+      <div id="recaptcha-button"></div>
       <div className="absolute inset-0 opacity-20 pointer-events-none">
          <div className="absolute top-[-10%] left-[-10%] w-[50%] h-[50%] bg-indigo-600 rounded-full blur-[160px]" />
       </div>
@@ -1448,35 +1516,8 @@ function LoginView() {
         <div className="w-12 h-12 bg-indigo-600 rounded-lg flex items-center justify-center font-bold text-white text-2xl mb-8 mx-auto shadow-indigo-500/20 shadow-lg">M</div>
         <h2 className="text-xl font-bold text-center mb-1 tracking-tight uppercase">Radar <span className="text-indigo-400">Métricas</span></h2>
         <p className="text-gray-500 text-center mb-8 text-xs uppercase tracking-widest">
-          {isLogin ? 'Acesso Restrito • Gestores de Tráfego' : 'Novo Registro • Comece sua Análise'}
+           Acesso exclusivo via Telefone
         </p>
-
-        <div className="grid grid-cols-2 gap-3 mb-8">
-          <button 
-            onClick={handleGoogleLogin}
-            disabled={loading}
-            className="bg-white hover:bg-gray-200 text-black font-bold py-3 rounded-lg transition-all flex items-center justify-center gap-2 shadow-lg uppercase text-[9px] tracking-widest disabled:opacity-50"
-          >
-            <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" className="w-4 h-4" alt="Google" />
-            Google
-          </button>
-          <button 
-            onClick={handleAnonymousLogin}
-            disabled={loading}
-            className="bg-[#1a1a1a] border border-[#2a2a2a] hover:bg-[#222] text-white font-bold py-3 rounded-lg transition-all flex items-center justify-center gap-2 shadow-lg uppercase text-[9px] tracking-widest disabled:opacity-50"
-          >
-            Acesso Rápido
-          </button>
-        </div>
-
-        <div className="relative mb-8">
-          <div className="absolute inset-0 flex items-center">
-            <div className="w-full border-t border-[#1f1f1f]"></div>
-          </div>
-          <div className="relative flex justify-center text-[10px] uppercase">
-            <span className="bg-[#141414] px-4 text-gray-600 font-bold italic">Ou via Credenciais</span>
-          </div>
-        </div>
 
         {error && (
           <div className="bg-red-500/10 border border-red-500/20 text-red-500 text-[10px] uppercase font-bold p-3 rounded mb-6 flex items-center gap-2">
@@ -1484,61 +1525,89 @@ function LoginView() {
             {error}
           </div>
         )}
-        
-        <form onSubmit={handleEmailAuth} className="space-y-4 mb-8">
-          {!isLogin && (
+
+        {!confirmationResult ? (
+          <form onSubmit={handleSendCode} className="space-y-4">
+            {!isLogin && (
+              <div>
+                <label className="text-[10px] uppercase tracking-widest text-gray-400 font-bold mb-1 block">Seu Nome</label>
+                <input 
+                  type="text" 
+                  value={name}
+                  onChange={e => setName(e.target.value)}
+                  className="w-full bg-[#0a0a0a] border border-[#1f1f1f] p-3 rounded text-xs outline-none focus:border-indigo-500 transition-all text-white"
+                  placeholder="Nome do Gestor"
+                />
+              </div>
+            )}
             <div>
-              <label className="text-[10px] uppercase tracking-widest text-gray-400 font-bold mb-1 block">Nome Completo</label>
-              <input 
-                type="text" 
-                value={name}
-                onChange={e => setName(e.target.value)}
-                className="w-full bg-[#0a0a0a] border border-[#1f1f1f] p-3 rounded text-xs outline-none focus:border-indigo-500 transition-all text-white"
-                placeholder="Seu nome"
-              />
+              <label className="text-[10px] uppercase tracking-widest text-gray-400 font-bold mb-1 block">Número de Telefone</label>
+              <div className="relative">
+                <Smartphone size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-600" />
+                <input 
+                  type="tel" 
+                  value={phoneNumber}
+                  onChange={e => setPhoneNumber(e.target.value)}
+                  className="w-full bg-[#0a0a0a] border border-[#1f1f1f] p-3 pl-10 rounded text-xs outline-none focus:border-indigo-500 transition-all text-white font-mono"
+                  placeholder="+55 11 99999-9999"
+                />
+              </div>
             </div>
-          )}
-          <div>
-            <label className="text-[10px] uppercase tracking-widest text-gray-400 font-bold mb-1 block">E-mail Corporativo</label>
-            <input 
-              type="email" 
-              value={email}
-              onChange={e => setEmail(e.target.value)}
-              className="w-full bg-[#0a0a0a] border border-[#1f1f1f] p-3 rounded text-xs outline-none focus:border-indigo-500 transition-all text-white"
-              placeholder="seu@email.com"
-            />
-          </div>
-          <div>
-            <label className="text-[10px] uppercase tracking-widest text-gray-400 font-bold mb-1 block">Senha (6 a 8 caracteres)</label>
-            <input 
-              type="password" 
-              value={password}
-              onChange={e => setPassword(e.target.value)}
-              className="w-full bg-[#0a0a0a] border border-[#1f1f1f] p-3 rounded text-xs outline-none focus:border-indigo-500 transition-all text-white"
-              placeholder="Min 6, Max 8 caracteres"
-            />
-          </div>
-          
-          <button 
-            type="submit"
-            disabled={loading}
-            className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-4 rounded-lg transition-all shadow-lg uppercase text-xs tracking-widest disabled:opacity-50"
-          >
-            {loading ? 'Processando...' : (isLogin ? 'Entrar no Radar' : 'Criar minha conta')}
-          </button>
-        </form>
+            <button 
+              type="submit"
+              disabled={loading}
+              className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-4 rounded-lg transition-all shadow-lg uppercase text-xs tracking-widest flex items-center justify-center gap-2"
+            >
+              {loading ? 'Validando...' : 'Receber Código SMS'}
+              {!loading && <ArrowRight size={14} />}
+            </button>
+          </form>
+        ) : (
+          <form onSubmit={handleVerifyCode} className="space-y-4">
+            <div>
+              <label className="text-[10px] uppercase tracking-widest text-gray-400 font-bold mb-1 block">Código de Verificação</label>
+              <div className="relative">
+                <ShieldCheck size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-emerald-500" />
+                <input 
+                  type="text" 
+                  value={verificationCode}
+                  onChange={e => setVerificationCode(e.target.value)}
+                  className="w-full bg-[#0a0a0a] border border-[#1f1f1f] p-3 pl-10 rounded text-xs outline-none focus:border-indigo-500 transition-all text-white font-mono tracking-[0.5em] text-center"
+                  placeholder="000000"
+                  maxLength={6}
+                />
+              </div>
+              <p className="text-[9px] text-gray-600 mt-2 text-center uppercase">Enviamos um SMS para {phoneNumber}</p>
+            </div>
+            <button 
+              type="submit"
+              disabled={loading}
+              className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-4 rounded-lg transition-all shadow-lg uppercase text-xs tracking-widest"
+            >
+              {loading ? 'Verificando...' : 'Confirmar e Entrar'}
+            </button>
+            <button 
+              type="button"
+              onClick={() => setConfirmationResult(null)}
+              className="w-full text-[10px] text-gray-500 uppercase font-bold hover:text-white transition-colors py-2"
+            >
+              Alterar número
+            </button>
+          </form>
+        )}
 
         <div className="mt-8 border-t border-[#1f1f1f] pt-8">
           <p className="text-center text-[10px] uppercase tracking-widest text-gray-500 font-medium">
-            {isLogin ? 'Não tem uma conta?' : 'Já possui acesso?'}
+            {isLogin ? 'Novo por aqui?' : 'Já possui acesso?'}
             <button 
               onClick={() => {
                 setIsLogin(!isLogin);
                 setError(null);
+                setConfirmationResult(null);
               }}
               className="ml-2 text-indigo-400 hover:text-indigo-300 font-bold"
             >
-              {isLogin ? 'Cadastre-se' : 'Faça Login'}
+              {isLogin ? 'Crie sua conta' : 'Acesse sua conta'}
             </button>
           </p>
         </div>
