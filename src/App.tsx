@@ -6,7 +6,6 @@ import {
   BarChart3, 
   TrendingUp, 
   Users, 
-  LogOut, 
   CheckCircle2, 
   AlertCircle,
   ExternalLink,
@@ -20,11 +19,7 @@ import {
   Info,
   Star,
   Calendar,
-  Download,
-  Phone,
-  ArrowRight,
-  ShieldCheck,
-  Smartphone
+  Download
 } from 'lucide-react';
 import { 
   LineChart, 
@@ -41,20 +36,6 @@ import {
   Cell
 } from 'recharts';
 import { collection, onSnapshot, query, where, addDoc, updateDoc, doc, getDocs } from 'firebase/firestore';
-import { 
-  onAuthStateChanged, 
-  signInWithPopup, 
-  GoogleAuthProvider, 
-  signOut, 
-  User, 
-  signInWithEmailAndPassword, 
-  createUserWithEmailAndPassword, 
-  updateProfile, 
-  signInAnonymously,
-  RecaptchaVerifier,
-  signInWithPhoneNumber,
-  ConfirmationResult
-} from 'firebase/auth';
 import { auth, db } from './lib/firebase';
 import { adApiService, AdMetric } from './services/adApiService';
 import { clsx, type ClassValue } from 'clsx';
@@ -101,10 +82,10 @@ interface Client {
 // --- Components ---
 
 export default function App() {
-  const [user, setUser] = useState<User | null>(null);
+  const [user, setUser] = useState<any>({ uid: 'public', displayName: 'Gestor' });
   const [clients, setClients] = useState<Client[]>([]);
   const [isAddingClient, setIsAddingClient] = useState(false);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [currentPath, setCurrentPath] = useState<'dashboard' | 'clients' | 'creatives' | 'settings'>('dashboard');
   const [selectedClient, setSelectedClient] = useState<Client | null>(null);
   const [showNotifications, setShowNotifications] = useState(false);
@@ -164,7 +145,7 @@ export default function App() {
 
   // --- Real-time Metrics Sync Loop ---
   useEffect(() => {
-    if (!user || clients.length === 0) return;
+    if (clients.length === 0) return;
 
     // Initial sync
     syncAllMetrics();
@@ -278,28 +259,15 @@ export default function App() {
   }, [clients]);
 
   useEffect(() => {
-    return onAuthStateChanged(auth, (u) => {
-      setUser(u);
-      setLoading(false);
-    });
-  }, []);
-
-  useEffect(() => {
-    if (!user) {
-      setClients([]);
-      return;
-    }
-
-    const q = query(collection(db, 'clients'), where('userId', '==', user.uid));
+    const q = query(collection(db, 'clients'));
     return onSnapshot(q, (snapshot) => {
       const docs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Client));
       setClients(docs);
     });
-  }, [user]);
+  }, []);
 
   useEffect(() => {
-    if (!user) return;
-    const q = query(collection(db, 'settings'), where('userId', '==', user.uid));
+    const q = query(collection(db, 'settings'));
     return onSnapshot(q, (snapshot) => {
       if (!snapshot.empty) {
         const data = snapshot.docs[0].data();
@@ -310,7 +278,7 @@ export default function App() {
         });
       }
     });
-  }, [user]);
+  }, []);
 
   const filteredClients = useMemo(() => {
     return clients.filter(c => {
@@ -320,16 +288,8 @@ export default function App() {
     });
   }, [clients, platformFilter, statusFilter]);
 
-  const login = async () => {
-    const provider = new GoogleAuthProvider();
-    await signInWithPopup(auth, provider);
-  };
-
-  const logout = () => signOut(auth);
-
-  if (loading) return <div className="h-screen bg-[#0a0a0a] flex items-center justify-center text-white font-mono uppercase tracking-[0.5em] text-xs">Loading...</div>;
-
-  if (!user) return <LoginView />;
+  const login = async () => {};
+  const logout = () => {};
 
   return (
     <div className="h-screen bg-[#0a0a0a] text-[#e5e7eb] font-sans flex flex-col overflow-hidden selection:bg-indigo-500 selection:text-white">
@@ -443,14 +403,14 @@ export default function App() {
           <div className="h-5 w-[1px] bg-grid mx-2" />
           <div className="flex items-center gap-3">
              <div 
-               title={user.email || ''}
-               className="w-8 h-8 rounded-full bg-gray-800 border border-grid flex items-center justify-center text-[10px] font-bold uppercase transition-transform hover:scale-105 cursor-pointer"
+               className="w-8 h-8 rounded-full bg-indigo-600 border border-grid flex items-center justify-center text-[10px] font-bold uppercase transition-transform hover:scale-105 cursor-pointer"
              >
-               {(user.displayName || user.email)?.charAt(0)}
+               G
              </div>
-             <button onClick={logout} className="p-1.5 text-gray-500 hover:text-white transition-colors" title="Sair">
-               <LogOut size={16} />
-             </button>
+             <div className="flex flex-col">
+               <span className="text-[10px] font-bold text-gray-200 uppercase tracking-tight">Gestor Master</span>
+               <span className="text-[8px] text-gray-500 uppercase font-mono">Acesso Público</span>
+             </div>
           </div>
         </div>
       </header>
@@ -1145,11 +1105,10 @@ export default function App() {
                             onChange={async (e) => {
                               const val = parseInt(e.target.value);
                               setAlertSettings(s => ({ ...s, cpaThreshold: val }));
-                              if (!user) return;
-                              const q = query(collection(db, 'settings'), where('userId', '==', user.uid));
+                              const q = query(collection(db, 'settings'));
                               const snap = await getDocs(q);
                               if (snap.empty) {
-                                await addDoc(collection(db, 'settings'), { userId: user.uid, cpaThreshold: val, spendDropThreshold: alertSettings.spendDropThreshold });
+                                await addDoc(collection(db, 'settings'), { cpaThreshold: val, spendDropThreshold: alertSettings.spendDropThreshold });
                               } else {
                                 await updateDoc(doc(db, 'settings', snap.docs[0].id), { cpaThreshold: val });
                               }
@@ -1181,11 +1140,10 @@ export default function App() {
                             onChange={async (e) => {
                               const val = parseInt(e.target.value);
                               setAlertSettings(s => ({ ...s, spendSurgeThreshold: val }));
-                              if (!user) return;
-                              const q = query(collection(db, 'settings'), where('userId', '==', user.uid));
+                              const q = query(collection(db, 'settings'));
                               const snap = await getDocs(q);
                               if (snap.empty) {
-                                await addDoc(collection(db, 'settings'), { userId: user.uid, spendSurgeThreshold: val, cpaThreshold: alertSettings.cpaThreshold, spendDropThreshold: alertSettings.spendDropThreshold });
+                                await addDoc(collection(db, 'settings'), { spendSurgeThreshold: val, cpaThreshold: alertSettings.cpaThreshold, spendDropThreshold: alertSettings.spendDropThreshold });
                               } else {
                                 await updateDoc(doc(db, 'settings', snap.docs[0].id), { spendSurgeThreshold: val });
                               }
@@ -1217,11 +1175,10 @@ export default function App() {
                             onChange={async (e) => {
                               const val = parseInt(e.target.value);
                               setAlertSettings(s => ({ ...s, spendDropThreshold: val }));
-                              if (!user) return;
-                              const q = query(collection(db, 'settings'), where('userId', '==', user.uid));
+                              const q = query(collection(db, 'settings'));
                               const snap = await getDocs(q);
                               if (snap.empty) {
-                                await addDoc(collection(db, 'settings'), { userId: user.uid, spendDropThreshold: val, cpaThreshold: alertSettings.cpaThreshold });
+                                await addDoc(collection(db, 'settings'), { spendDropThreshold: val, cpaThreshold: alertSettings.cpaThreshold });
                               } else {
                                 await updateDoc(doc(db, 'settings', snap.docs[0].id), { spendDropThreshold: val });
                               }
@@ -1262,7 +1219,7 @@ export default function App() {
             onSubmit={async (data) => {
               await addDoc(collection(db, 'clients'), {
                 ...data,
-                userId: user.uid,
+                userId: 'public',
                 status: 'paused',
                 createdAt: new Date().toISOString()
               });
@@ -1412,209 +1369,6 @@ function KPIItem({ title, value, diff, diffColor, tooltip }: { title: string, va
   );
 }
 
-function LoginView() {
-  const [isLogin, setIsLogin] = useState(true);
-  const [phoneNumber, setPhoneNumber] = useState('');
-  const [verificationCode, setVerificationCode] = useState('');
-  const [name, setName] = useState('');
-  const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [confirmationResult, setConfirmationResult] = useState<ConfirmationResult | null>(null);
-
-  const setupRecaptcha = (containerId: string) => {
-    try {
-      const verifier = new RecaptchaVerifier(auth, containerId, {
-        'size': 'invisible'
-      });
-      return verifier;
-    } catch (err) {
-      console.error(err);
-      return null;
-    }
-  };
-
-  const handleSendCode = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!phoneNumber) return setError('Informe seu número de telefone');
-    
-    try {
-      setLoading(true);
-      setError(null);
-      
-      const verifier = setupRecaptcha('recaptcha-button');
-      if (!verifier) throw new Error('Falha na segurança');
-
-      // Add prefix if missing
-      const formatted = phoneNumber.startsWith('+') ? phoneNumber : `+55${phoneNumber.replace(/\D/g, '')}`;
-      
-      const result = await signInWithPhoneNumber(auth, formatted, verifier);
-      setConfirmationResult(result);
-    } catch (err: any) {
-      console.error(err);
-      setError('Falha ao enviar SMS. Verifique o número (+55...)');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleVerifyCode = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!verificationCode || !confirmationResult) return;
-
-    try {
-      setLoading(true);
-      setError(null);
-      const result = await confirmationResult.confirm(verificationCode);
-      if (result.user && name && !result.user.displayName) {
-        await updateProfile(result.user, { displayName: name });
-      }
-    } catch (err: any) {
-      console.error(err);
-      setError('Código inválido ou expirado');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleGoogleLogin = async () => {
-    try {
-      setLoading(true);
-      setError(null);
-      const provider = new GoogleAuthProvider();
-      await signInWithPopup(auth, provider);
-    } catch (err: any) {
-      setError('Erro ao entrar com Google');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleAnonymousLogin = async () => {
-    try {
-      setLoading(true);
-      setError(null);
-      await signInAnonymously(auth);
-    } catch (err: any) {
-      setError('Acesso rápido indisponível');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  return (
-    <div className="min-h-screen bg-[#0a0a0a] flex items-center justify-center p-6 relative overflow-hidden font-sans">
-      <div id="recaptcha-button"></div>
-      <div className="absolute inset-0 opacity-20 pointer-events-none">
-         <div className="absolute top-[-10%] left-[-10%] w-[50%] h-[50%] bg-indigo-600 rounded-full blur-[160px]" />
-      </div>
-
-      <motion.div 
-        initial={{ opacity: 0, scale: 0.95 }}
-        animate={{ opacity: 1, scale: 1 }}
-        className="max-w-md w-full bg-[#141414] border border-[#1f1f1f] p-10 rounded-xl shadow-2xl relative z-10"
-      >
-        <div className="w-12 h-12 bg-indigo-600 rounded-lg flex items-center justify-center font-bold text-white text-2xl mb-8 mx-auto shadow-indigo-500/20 shadow-lg">M</div>
-        <h2 className="text-xl font-bold text-center mb-1 tracking-tight uppercase">Radar <span className="text-indigo-400">Métricas</span></h2>
-        <p className="text-gray-500 text-center mb-8 text-xs uppercase tracking-widest">
-           Acesso exclusivo via Telefone
-        </p>
-
-        {error && (
-          <div className="bg-red-500/10 border border-red-500/20 text-red-500 text-[10px] uppercase font-bold p-3 rounded mb-6 flex items-center gap-2">
-            <AlertTriangle size={14} />
-            {error}
-          </div>
-        )}
-
-        {!confirmationResult ? (
-          <form onSubmit={handleSendCode} className="space-y-4">
-            {!isLogin && (
-              <div>
-                <label className="text-[10px] uppercase tracking-widest text-gray-400 font-bold mb-1 block">Seu Nome</label>
-                <input 
-                  type="text" 
-                  value={name}
-                  onChange={e => setName(e.target.value)}
-                  className="w-full bg-[#0a0a0a] border border-[#1f1f1f] p-3 rounded text-xs outline-none focus:border-indigo-500 transition-all text-white"
-                  placeholder="Nome do Gestor"
-                />
-              </div>
-            )}
-            <div>
-              <label className="text-[10px] uppercase tracking-widest text-gray-400 font-bold mb-1 block">Número de Telefone</label>
-              <div className="relative">
-                <Smartphone size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-600" />
-                <input 
-                  type="tel" 
-                  value={phoneNumber}
-                  onChange={e => setPhoneNumber(e.target.value)}
-                  className="w-full bg-[#0a0a0a] border border-[#1f1f1f] p-3 pl-10 rounded text-xs outline-none focus:border-indigo-500 transition-all text-white font-mono"
-                  placeholder="+55 11 99999-9999"
-                />
-              </div>
-            </div>
-            <button 
-              type="submit"
-              disabled={loading}
-              className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-4 rounded-lg transition-all shadow-lg uppercase text-xs tracking-widest flex items-center justify-center gap-2"
-            >
-              {loading ? 'Validando...' : 'Receber Código SMS'}
-              {!loading && <ArrowRight size={14} />}
-            </button>
-          </form>
-        ) : (
-          <form onSubmit={handleVerifyCode} className="space-y-4">
-            <div>
-              <label className="text-[10px] uppercase tracking-widest text-gray-400 font-bold mb-1 block">Código de Verificação</label>
-              <div className="relative">
-                <ShieldCheck size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-emerald-500" />
-                <input 
-                  type="text" 
-                  value={verificationCode}
-                  onChange={e => setVerificationCode(e.target.value)}
-                  className="w-full bg-[#0a0a0a] border border-[#1f1f1f] p-3 pl-10 rounded text-xs outline-none focus:border-indigo-500 transition-all text-white font-mono tracking-[0.5em] text-center"
-                  placeholder="000000"
-                  maxLength={6}
-                />
-              </div>
-              <p className="text-[9px] text-gray-600 mt-2 text-center uppercase">Enviamos um SMS para {phoneNumber}</p>
-            </div>
-            <button 
-              type="submit"
-              disabled={loading}
-              className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-4 rounded-lg transition-all shadow-lg uppercase text-xs tracking-widest"
-            >
-              {loading ? 'Verificando...' : 'Confirmar e Entrar'}
-            </button>
-            <button 
-              type="button"
-              onClick={() => setConfirmationResult(null)}
-              className="w-full text-[10px] text-gray-500 uppercase font-bold hover:text-white transition-colors py-2"
-            >
-              Alterar número
-            </button>
-          </form>
-        )}
-
-        <div className="mt-8 border-t border-[#1f1f1f] pt-8">
-          <p className="text-center text-[10px] uppercase tracking-widest text-gray-500 font-medium">
-            {isLogin ? 'Novo por aqui?' : 'Já possui acesso?'}
-            <button 
-              onClick={() => {
-                setIsLogin(!isLogin);
-                setError(null);
-                setConfirmationResult(null);
-              }}
-              className="ml-2 text-indigo-400 hover:text-indigo-300 font-bold"
-            >
-              {isLogin ? 'Crie sua conta' : 'Acesse sua conta'}
-            </button>
-          </p>
-        </div>
-      </motion.div>
-    </div>
-  );
-}
 
 function ClientModal({ onClose, onSubmit }: { onClose: () => void, onSubmit: (data: any) => void }) {
   const [formData, setFormData] = useState({ name: '', platform: 'meta', accountId: '' });
