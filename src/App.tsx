@@ -1374,6 +1374,21 @@ function LoginView() {
     e.preventDefault();
     if (!email || !password) return setError('Preencha todos os campos');
     
+    // Validação de E-mail (Suporta .com, .com.br e outros formatos corporativos)
+    const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}(\.[a-zA-Z]{2,})?$/;
+    if (!emailRegex.test(email)) {
+      return setError('E-mail inválido. Utilize o formato seu@empresa.com ou .com.br');
+    }
+
+    // Validação de Senha (conforme solicitado: até 8 dígitos/caracteres)
+    // Nota: Firebase exige no mínimo 6. Portanto, a regra será entre 6 e 8.
+    if (password.length < 6) {
+      return setError('A senha deve ter no mínimo 6 caracteres');
+    }
+    if (password.length > 8) {
+      return setError('A senha deve ter no máximo 8 caracteres');
+    }
+    
     try {
       setLoading(true);
       setError(null);
@@ -1389,7 +1404,6 @@ function LoginView() {
       if (err.code === 'auth/user-not-found') msg = 'Usuário não encontrado';
       if (err.code === 'auth/wrong-password') msg = 'Senha incorreta';
       if (err.code === 'auth/email-already-in-use') msg = 'Este e-mail já está em uso';
-      if (err.code === 'auth/weak-password') msg = 'A senha deve ter pelo menos 6 caracteres';
       setError(msg);
     } finally {
       setLoading(false);
@@ -1444,13 +1458,13 @@ function LoginView() {
             />
           </div>
           <div>
-            <label className="text-[10px] uppercase tracking-widest text-gray-400 font-bold mb-1 block">Senha Segura</label>
+            <label className="text-[10px] uppercase tracking-widest text-gray-400 font-bold mb-1 block">Senha (6 a 8 caracteres)</label>
             <input 
               type="password" 
               value={password}
               onChange={e => setPassword(e.target.value)}
               className="w-full bg-[#0a0a0a] border border-[#1f1f1f] p-3 rounded text-xs outline-none focus:border-indigo-500 transition-all text-white"
-              placeholder="••••••••"
+              placeholder="Min 6, Max 8 caracteres"
             />
           </div>
           
