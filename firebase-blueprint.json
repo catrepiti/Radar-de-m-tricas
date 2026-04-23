@@ -1,0 +1,43 @@
+{
+  "entities": {
+    "Client": {
+      "title": "Client",
+      "description": "Represents a marketing client account (Meta or Google Ads).",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "The UID of the owner." },
+        "name": { "type": "string", "description": "The friendly name of the client." },
+        "platform": { "type": "string", "enum": ["meta", "google"], "description": "The advertising platform." },
+        "accountId": { "type": "string", "description": "The platform-specific account ID." },
+        "encryptedToken": { "type": "string", "description": "Encrypted OAuth token." },
+        "status": { "type": "string", "enum": ["active", "paused", "error"], "description": "The connection status." },
+        "lastSync": { "type": "string", "format": "date-time", "description": "Last time metrics were synced." }
+      },
+      "required": ["name", "platform", "accountId"]
+    },
+    "Metric": {
+      "title": "Metric",
+      "description": "Historical performance data for a client.",
+      "type": "object",
+      "properties": {
+        "clientId": { "type": "string", "description": "Reference to the client ID." },
+        "date": { "type": "string", "format": "date", "description": "The date for these metrics." },
+        "spend": { "type": "number", "description": "Total spend for the day." },
+        "clicks": { "type": "number", "description": "Total clicks for the day." },
+        "impressions": { "type": "number", "description": "Total impressions for the day." },
+        "conversions": { "type": "number", "description": "Total conversions for the day." }
+      },
+      "required": ["clientId", "date", "spend"]
+    }
+  },
+  "firestore": {
+    "clients": {
+      "schema": "Client",
+      "description": "Store for advertiser account connections."
+    },
+    "metrics": {
+      "schema": "Metric",
+      "description": "Time-series storage for performance data."
+    }
+  }
+}
