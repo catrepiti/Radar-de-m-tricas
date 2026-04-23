@@ -36,7 +36,7 @@ import {
   Cell
 } from 'recharts';
 import { collection, onSnapshot, query, where, addDoc, updateDoc, doc, getDocs } from 'firebase/firestore';
-import { onAuthStateChanged, signInWithPopup, GoogleAuthProvider, signOut, User, signInWithEmailAndPassword, createUserWithEmailAndPassword, updateProfile } from 'firebase/auth';
+import { onAuthStateChanged, signInWithPopup, GoogleAuthProvider, signOut, User, signInWithEmailAndPassword, createUserWithEmailAndPassword, updateProfile, signInAnonymously } from 'firebase/auth';
 import { auth, db } from './lib/firebase';
 import { adApiService, AdMetric } from './services/adApiService';
 import { clsx, type ClassValue } from 'clsx';
@@ -855,12 +855,16 @@ export default function App() {
                          key={creative.id}
                          initial={{ opacity: 0, y: 10 }}
                          animate={{ opacity: 1, y: 0 }}
-                         transition={{ delay: i * 0.05 }}
+                         whileHover={{ scale: 1.02 }}
+                         transition={{ 
+                            initial: { delay: i * 0.05 },
+                            scale: { type: "spring", stiffness: 300, damping: 20 }
+                         }}
                          className={cn(
-                           "card rounded-lg overflow-hidden group shadow-sm transition-all bg-[#0f0f0f] relative",
-                           creative.status === 'High Performance' && "ring-1 ring-emerald-500/50 border-emerald-500/40 shadow-[0_0_15px_-5px_rgba(16,185,129,0.25)]",
-                           creative.status === 'Scaling' && "ring-1 ring-indigo-500/40 border-indigo-500/30 shadow-[0_0_15px_-5px_rgba(99,102,241,0.15)]",
-                           (creative.status !== 'High Performance' && creative.status !== 'Scaling') && "hover:border-indigo-500/50 border-grid"
+                           "card rounded-lg overflow-hidden group shadow-sm transition-all bg-[#0f0f0f] relative cursor-pointer",
+                           creative.status === 'High Performance' && "ring-1 ring-emerald-500/50 border-emerald-500/40 shadow-[0_0_15px_-5px_rgba(16,185,129,0.25)] hover:ring-emerald-400 hover:shadow-[0_0_20px_-5px_rgba(16,185,129,0.4)]",
+                           creative.status === 'Scaling' && "ring-1 ring-indigo-500/40 border-indigo-500/30 shadow-[0_0_15px_-5px_rgba(99,102,241,0.15)] hover:ring-indigo-400 hover:shadow-[0_0_20px_-5px_rgba(99,102,241,0.3)]",
+                           (creative.status !== 'High Performance' && creative.status !== 'Scaling') && "hover:border-indigo-500/50 border-grid hover:shadow-[0_0_15px_-5px_rgba(99,102,241,0.2)]"
                          )}
                        >
                           {/* Hover Summary Overlay */}
@@ -1400,11 +1404,31 @@ function LoginView() {
         await updateProfile(userCredential.user, { displayName: name });
       }
     } catch (err: any) {
-      let msg = 'Erro na autenticação';
-      if (err.code === 'auth/user-not-found') msg = 'Usuário não encontrado';
+      console.error("Erro detalhado da Firebase:", err.code, err.message);
+      let msg = `Erro: ${err.message || 'Falha na comunicação com o servidor'}`;
+      
+      if (err.code === 'auth/user-not-found') msg = 'E-mail não cadastrado';
       if (err.code === 'auth/wrong-password') msg = 'Senha incorreta';
       if (err.code === 'auth/email-already-in-use') msg = 'Este e-mail já está em uso';
+      if (err.code === 'auth/invalid-email') msg = 'Formato de e-mail inválido pelo sistema';
+      if (err.code === 'auth/operation-not-allowed') msg = 'O login por e-mail ainda não está habilitado no console Firebase';
+      if (err.code === 'auth/network-request-failed') msg = 'Falha de conexão. Verifique sua internet';
+      if (err.code === 'auth/too-many-requests') msg = 'Acesso bloqueado temporariamente por excesso de tentativas';
+      
       setError(msg);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleAnonymousLogin = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      await signInAnonymously(auth);
+    } catch (err: any) {
+      setError('Acesso rápido temporariamente indisponível. Utilize o formulário ou Google.');
+      console.error(err);
     } finally {
       setLoading(false);
     }
@@ -1423,9 +1447,36 @@ function LoginView() {
       >
         <div className="w-12 h-12 bg-indigo-600 rounded-lg flex items-center justify-center font-bold text-white text-2xl mb-8 mx-auto shadow-indigo-500/20 shadow-lg">M</div>
         <h2 className="text-xl font-bold text-center mb-1 tracking-tight uppercase">Radar <span className="text-indigo-400">Métricas</span></h2>
-        <p className="text-gray-500 text-center mb-10 text-xs uppercase tracking-widest">
+        <p className="text-gray-500 text-center mb-8 text-xs uppercase tracking-widest">
           {isLogin ? 'Acesso Restrito • Gestores de Tráfego' : 'Novo Registro • Comece sua Análise'}
         </p>
+
+        <div className="grid grid-cols-2 gap-3 mb-8">
+          <button 
+            onClick={handleGoogleLogin}
+            disabled={loading}
+            className="bg-white hover:bg-gray-200 text-black font-bold py-3 rounded-lg transition-all flex items-center justify-center gap-2 shadow-lg uppercase text-[9px] tracking-widest disabled:opacity-50"
+          >
+            <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" className="w-4 h-4" alt="Google" />
+            Google
+          </button>
+          <button 
+            onClick={handleAnonymousLogin}
+            disabled={loading}
+            className="bg-[#1a1a1a] border border-[#2a2a2a] hover:bg-[#222] text-white font-bold py-3 rounded-lg transition-all flex items-center justify-center gap-2 shadow-lg uppercase text-[9px] tracking-widest disabled:opacity-50"
+          >
+            Acesso Rápido
+          </button>
+        </div>
+
+        <div className="relative mb-8">
+          <div className="absolute inset-0 flex items-center">
+            <div className="w-full border-t border-[#1f1f1f]"></div>
+          </div>
+          <div className="relative flex justify-center text-[10px] uppercase">
+            <span className="bg-[#141414] px-4 text-gray-600 font-bold italic">Ou via Credenciais</span>
+          </div>
+        </div>
 
         {error && (
           <div className="bg-red-500/10 border border-red-500/20 text-red-500 text-[10px] uppercase font-bold p-3 rounded mb-6 flex items-center gap-2">
@@ -1477,36 +1528,20 @@ function LoginView() {
           </button>
         </form>
 
-        <div className="relative mb-8">
-          <div className="absolute inset-0 flex items-center">
-            <div className="w-full border-t border-[#1f1f1f]"></div>
-          </div>
-          <div className="relative flex justify-center text-[10px] uppercase">
-            <span className="bg-[#141414] px-4 text-gray-600 font-bold">Ou continue com</span>
-          </div>
+        <div className="mt-8 border-t border-[#1f1f1f] pt-8">
+          <p className="text-center text-[10px] uppercase tracking-widest text-gray-500 font-medium">
+            {isLogin ? 'Não tem uma conta?' : 'Já possui acesso?'}
+            <button 
+              onClick={() => {
+                setIsLogin(!isLogin);
+                setError(null);
+              }}
+              className="ml-2 text-indigo-400 hover:text-indigo-300 font-bold"
+            >
+              {isLogin ? 'Cadastre-se' : 'Faça Login'}
+            </button>
+          </p>
         </div>
-
-        <button 
-          onClick={handleGoogleLogin}
-          disabled={loading}
-          className="w-full bg-white hover:bg-gray-200 text-black font-bold py-4 rounded-lg transition-all flex items-center justify-center gap-3 shadow-lg uppercase text-xs tracking-widest disabled:opacity-50 mb-6"
-        >
-          <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" className="w-5 h-5" alt="Google" />
-          Google
-        </button>
-
-        <p className="text-center text-[10px] uppercase tracking-widest text-gray-500 font-medium">
-          {isLogin ? 'Não tem uma conta?' : 'Já possui acesso?'}
-          <button 
-            onClick={() => {
-              setIsLogin(!isLogin);
-              setError(null);
-            }}
-            className="ml-2 text-indigo-400 hover:text-indigo-300 font-bold"
-          >
-            {isLogin ? 'Cadastre-se' : 'Faça Login'}
-          </button>
-        </p>
       </motion.div>
     </div>
   );
